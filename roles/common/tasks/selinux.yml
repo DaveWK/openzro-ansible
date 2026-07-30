@@ -1,0 +1,40 @@
+---
+# SELinux prerequisites. Included from tasks/main.yml; every task
+# below is a no-op unless SELinux is actually enabled, so this file
+# costs a fact lookup on Debian/Ubuntu and nothing else.
+#
+# The failure this prevents: with SELinux enforcing, an unmodified
+# nginx cannot open an outbound socket, so every proxied request to
+# management REST / management gRPC / signal gRPC / the dashboard
+# container returns 502 with `avc: denied { name_connect }` in the
+# audit log. Nothing in the nginx config or the openzro config is
+# wrong when that happens, which makes it an expensive hour to debug.
+
+# `is mapping` first because on a host without the SELinux python
+# bindings the fact is a plain string ("Missing selinux Python
+# library"), and `.status` on that would blow up.
+- name: Note whether SELinux is enforcing
+  ansible.builtin.set_fact:
+    openzro_selinux_active: >-
+      {{ (ansible_selinux | default({}, true) is mapping)
+         and (ansible_selinux.status | default('disabled') == 'enabled') }}
+
+- name: Install SELinux management bindings
+  ansible.builtin.package:
+    name:
+      - python3-libselinux
+      - policycoreutils-python-utils
+    state: present
+  when: openzro_selinux_active | bool
+
+# Persistent (`persistent: true`) so a relabel or reboot doesn't drop
+# it. Applied on hosts that run nginx — the dashboard group in the
+# stock site.yml — since nginx is the only component that proxies.
+- name: Allow nginx to reach the openzro upstreams
+  ansible.posix.seboolean:
+    name: httpd_can_network_connect
+    state: true
+    persistent: true
+  when:
+    - openzro_selinux_active | bool
+    - "'dashboard' in group_names"

@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+#
+# podman quadlet. The generator at
+# /usr/lib/systemd/system-generators/podman-system-generator turns this
+# into {{ openzro_dashboard_service }} at daemon-reload time — there is
+# no {{ openzro_dashboard_service }} file on disk to look for.
+
+[Unit]
+Description=openZro dashboard (static SPA behind nginx)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image={{ openzro_dashboard_image }}:{{ openzro_dashboard_image_tag }}
+ContainerName={{ openzro_dashboard_container_name }}
+EnvironmentFile={{ openzro_dashboard_env_file }}
+# Loopback only. Public exposure is nginx's job.
+PublishPort={{ openzro_dashboard_publish }}
+# The image's entrypoint rewrites files under /usr/share/nginx/html on
+# every start, so the rootfs cannot be read-only.
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=15s
+
+[Install]
+WantedBy=multi-user.target

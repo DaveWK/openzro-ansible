@@ -1,18 +1,14 @@
 ---
-- name: Install openzro-management package (apt)
-  ansible.builtin.apt:
-    name: "{{ openzro_management_package }}{{ ('=' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
+# One `package` task rather than an apt task plus a dnf task gated on
+# ansible_pkg_mgr: Fedora 41+ reports `dnf5`, which matched neither
+# gate, and ansible.builtin.dnf itself needs the dnf4 Python bindings
+# that a current Fedora no longer ships. `package` dispatches to the
+# right module (apt / dnf / dnf5 / pacman) on its own. The version-pin
+# separator comes from vars/main.yml.
+- name: Install openzro-management package
+  ansible.builtin.package:
+    name: "{{ openzro_management_pkg_spec }}"
     state: present
-    update_cache: true
-  when: ansible_pkg_mgr == "apt"
-  notify: restart openzro-management
-
-- name: Install openzro-management package (dnf/yum)
-  ansible.builtin.dnf:
-    name: "{{ openzro_management_package }}{{ ('-' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
-    state: present
-    update_cache: true
-  when: ansible_pkg_mgr in ["dnf", "yum"]
   notify: restart openzro-management
 
 - name: Ensure openzro data dir exists

@@ -1,0 +1,21 @@
+---
+# Version-pin syntax differs by package manager: apt wants
+# `pkg=1.2.3`, dnf/yum want `pkg-1.2.3`. Both repos publish the
+# alpha versions with a tilde (`0.53.1~alpha.86`), so that's the
+# string openzro_version should carry — not the `-alpha.86` form
+# used in git tags.
+openzro_pkg_version_separator: "{{ '=' if ansible_os_family == 'Debian' else '-' }}"
+
+openzro_dashboard_pkg_spec: >-
+  {{ openzro_dashboard_package }}{{ (openzro_pkg_version_separator ~ openzro_version)
+     if openzro_version | default('') | length > 0 else '' }}
+
+# Split openzro_dashboard_publish back into the address the health
+# probe should hit. Handles both the explicit `127.0.0.1:8080:80` form
+# and the bare `8080:80` form, which publishes on every interface —
+# the probe still uses loopback either way.
+openzro_dashboard_publish_host: >-
+  {{ openzro_dashboard_publish.split(':')[0]
+     if openzro_dashboard_publish.split(':') | length > 2 else '127.0.0.1' }}
+openzro_dashboard_publish_port: "{{ openzro_dashboard_publish.split(':')[-2] }}"
+openzro_dashboard_probe_url: "http://{{ openzro_dashboard_publish_host }}:{{ openzro_dashboard_publish_port }}/"

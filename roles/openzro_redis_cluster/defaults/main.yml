@@ -10,12 +10,36 @@
 # role. This role is "good enough for two-replica HA with manual
 # promotion" — appropriate for stage / small prod.
 
-openzro_redis_package: redis-server
-openzro_redis_service: redis-server
-openzro_redis_user: redis
-openzro_redis_group: redis
-openzro_redis_data_dir: /var/lib/redis
-openzro_redis_config_path: /etc/redis/redis.conf
+# Three different packagings of the same thing:
+#
+#   Debian/Ubuntu   redis-server, service redis-server,
+#                   /etc/redis/redis.conf
+#   RHEL/Rocky/Alma redis from AppStream, service redis, same config
+#                   path but the package/service name loses the
+#                   `-server` suffix
+#   Fedora          NO redis at all — Fedora dropped it over the
+#                   licence change and ships valkey, the BSD fork, in
+#                   its place. Same wire protocol and same config
+#                   syntax, different names and paths throughout.
+#
+# The management coordinator talks the Redis protocol, so valkey is a
+# drop-in as far as openzro is concerned. Override any of these when
+# you're running a build that doesn't match your distro's default —
+# e.g. valkey from a third-party repo on EL.
+openzro_redis_flavour: "{{ 'valkey' if ansible_distribution == 'Fedora' else 'redis' }}"
+
+openzro_redis_package: >-
+  {{ 'valkey' if openzro_redis_flavour == 'valkey'
+     else ('redis-server' if ansible_os_family == 'Debian' else 'redis') }}
+openzro_redis_service: >-
+  {{ 'valkey' if openzro_redis_flavour == 'valkey'
+     else ('redis-server' if ansible_os_family == 'Debian' else 'redis') }}
+openzro_redis_user: "{{ openzro_redis_flavour }}"
+openzro_redis_group: "{{ openzro_redis_flavour }}"
+openzro_redis_data_dir: "/var/lib/{{ openzro_redis_flavour }}"
+openzro_redis_config_path: >-
+  {{ '/etc/valkey/valkey.conf' if openzro_redis_flavour == 'valkey'
+     else '/etc/redis/redis.conf' }}
 
 openzro_redis_port: 6379
 openzro_redis_bind: 0.0.0.0   # listen on all interfaces; firewall gates access

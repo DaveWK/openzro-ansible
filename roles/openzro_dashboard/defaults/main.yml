@@ -1,13 +1,69 @@
 ---
-# Bare-metal dashboard install. The deb/rpm package drops the
-# static bundle at /usr/share/openzro-dashboard/ — the role then
-# renders /etc/openzro-dashboard.env from a Jinja template and
-# runs render-env.sh to substitute the env values into the
-# static files. nginx in front comes from the openzro_nginx role.
+# The dashboard ships two ways, and which one you get is not a
+# preference — it's what the repo for your distro actually carries:
+#
+#   package  The `openzro-dashboard` deb drops the static bundle at
+#            /usr/share/openzro-dashboard/ and a render-env.sh that
+#            substitutes env values into it. nginx serves the files
+#            directly. APT ONLY — pkg.openzro.io's rpm repo ships
+#            openzro, openzro-management, openzro-relay,
+#            openzro-signal and openzro-ui, and no dashboard. (The
+#            similarly-named `openzro-ui` is the desktop GUI client,
+#            not this.)
+#
+#   podman   ghcr.io/openzro/dashboard as a podman quadlet, published
+#            on loopback, with nginx reverse-proxying to it. The only
+#            option on Fedora / RHEL / Rocky / Alma.
+#
+#   docker   The same image under docker, wrapped in a systemd unit
+#            so start/stop/restart behave the same as the podman path.
+#
+# `auto` picks package on Debian-family hosts and podman everywhere
+# else, which is the correct choice on both without the operator
+# having to know the repo asymmetry above. Set it explicitly to
+# override — e.g. `docker` on a host that already runs a docker
+# daemon and shouldn't grow a second container runtime.
+openzro_dashboard_install_method: auto   # auto | package | podman | docker
 
 openzro_dashboard_package: openzro-dashboard
 openzro_dashboard_root: /usr/share/openzro-dashboard
 openzro_dashboard_env_file: /etc/openzro-dashboard.env
+
+# ---------------------------------------------------------------------
+# Container settings — consulted when the install method resolves to
+# podman or docker.
+# ---------------------------------------------------------------------
+openzro_dashboard_image: ghcr.io/openzro/dashboard
+# Defaults to openzro_version when one is pinned so the dashboard
+# doesn't drift away from the daemons during a rolling update.
+#
+# The `~` gets rewritten to `-`: openzro_version carries the package
+# spelling (`0.53.1~alpha.86`) but a tilde is not a legal character in
+# an OCI tag, and the image is tagged with the git-tag spelling
+# (`0.53.1-alpha.86`). Set this explicitly if the image you want
+# doesn't follow that pattern.
+openzro_dashboard_image_tag: "{{ openzro_version | default('latest', true) | replace('~', '-') }}"
+openzro_dashboard_container_name: openzro-dashboard
+openzro_dashboard_service: openzro-dashboard.service
+
+# Loopback publish. The container is NOT the TLS listener — nginx is,
+# and it proxies here. Binding 127.0.0.1 explicitly (rather than
+# `8080:80`) keeps the SPA off the host's public interface even if the
+# firewall is misconfigured. Must match the port openzro_nginx proxies
+# to; see openzro_nginx_dashboard_upstream.
+openzro_dashboard_publish: "127.0.0.1:8080:80"
+
+# podman only — quadlet files live here and are turned into systemd
+# units by the generator at daemon-reload time.
+openzro_dashboard_quadlet_path: /etc/containers/systemd/openzro-dashboard.container
+
+# docker only — the wrapper unit this role writes.
+openzro_dashboard_docker_unit_path: /etc/systemd/system/openzro-dashboard.service
+# Package name for the docker engine. Fedora/EL's distro package is
+# `moby-engine`; Debian/Ubuntu's is `docker.io`. Operators running
+# Docker CE from docker.com's own repo should install it themselves
+# and set this to "" so the role leaves the runtime alone.
+openzro_dashboard_docker_package: "{{ 'docker.io' if ansible_os_family == 'Debian' else 'moby-engine' }}"
 
 # OIDC values default-driven from group_vars/all.yml — same vars
 # the openzro_management role uses, so a single inventory definition

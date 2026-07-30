@@ -41,13 +41,16 @@ skip_list:
   # restructuring pass on the role.
   - key-order[task]
 
-  # The openzro_nginx role uses `shell: systemctl list-unit-files` +
-  # awk to figure out which certbot renewal timer name the distro
-  # ships (`certbot.timer` on Debian/Ubuntu, `certbot-renew.timer` on
-  # RHEL/Rocky). The systemd module has no equivalent listing
-  # operation, so shell is the right tool here. Skipped globally
-  # rather than per-task because the alternative (per-task `# noqa`)
-  # bloats the task body for a documented, deliberate choice.
+  # The openzro_nginx and openzro_relay roles use
+  # `shell: systemctl list-unit-files` + awk to figure out which
+  # certbot renewal timer name the distro ships (`certbot.timer` on
+  # Debian/Ubuntu, `certbot-renew.timer` on RHEL-family). The systemd
+  # module has no equivalent listing operation, so shell is the right
+  # tool here — and asking systemd beats mapping distro to unit name,
+  # which is exactly the kind of assumption the rest of this repo just
+  # had audited out of it. Skipped globally rather than per-task
+  # because the alternative (per-task `# noqa`) bloats the task body
+  # for a documented, deliberate choice.
   - command-instead-of-module
 
 # Lint everything under the standard role/playbook tree. Fixtures

@@ -6,15 +6,61 @@
 openzro_nginx_package: nginx
 openzro_nginx_service: nginx
 openzro_nginx_site_name: openzro
-openzro_nginx_site_path: "/etc/nginx/sites-available/{{ openzro_nginx_site_name }}"
-openzro_nginx_enabled_path: "/etc/nginx/sites-enabled/{{ openzro_nginx_site_name }}"
 
-# Where the dashboard static files live (drop-in by the
-# openzro-dashboard deb/rpm). Set to false to skip dashboard
-# serving entirely — useful if you front the dashboard with
-# something else (Cloudflare Pages, S3+CloudFront, etc.).
+# The two distros disagree on how a site gets activated:
+#
+#   Debian/Ubuntu  sites-available/<name> + a symlink into
+#                  sites-enabled/, which nginx.conf includes.
+#   RHEL/Fedora    conf.d/<name>.conf, which nginx.conf already
+#                  includes. There is no sites-available directory
+#                  at all — the old hardcoded path meant the
+#                  template task failed outright on these hosts.
+#
+# An empty openzro_nginx_enabled_path means "activation is just
+# dropping the file in place", and the symlink task is skipped.
+openzro_nginx_site_path: >-
+  {{ '/etc/nginx/sites-available/' ~ openzro_nginx_site_name
+     if ansible_os_family == 'Debian'
+     else '/etc/nginx/conf.d/' ~ openzro_nginx_site_name ~ '.conf' }}
+openzro_nginx_enabled_path: >-
+  {{ '/etc/nginx/sites-enabled/' ~ openzro_nginx_site_name
+     if ansible_os_family == 'Debian' else '' }}
+
+# Run `nginx -t` after rendering and fail the play on a bad config,
+# before the reload handler fires — so a broken template leaves the
+# running nginx serving what it already loaded.
+openzro_nginx_validate_config: true
+
+# Set to false to skip dashboard serving entirely — useful if you
+# front the dashboard with something else (Cloudflare Pages,
+# S3+CloudFront, etc.).
 openzro_nginx_serve_dashboard: true
+
+# How the dashboard is served, which follows how it was installed:
+#
+#   static  Serve the unpacked bundle from disk. Only possible where
+#           the openzro-dashboard package exists — i.e. APT hosts.
+#   proxy   Reverse-proxy to the dashboard container on loopback.
+#           What Fedora / RHEL / Rocky / Alma get, since there is no
+#           dashboard rpm and the podman/docker install methods are
+#           the only ones available there.
+#
+# `auto` mirrors openzro_dashboard_install_method's own auto rule, so
+# the two roles agree without the operator setting anything. It's
+# re-derived rather than read off the dashboard role because site.yml
+# runs them in separate plays.
+openzro_nginx_dashboard_mode: >-
+  {{ 'static'
+     if (openzro_dashboard_install_method | default('auto')) == 'package'
+        or ((openzro_dashboard_install_method | default('auto')) == 'auto'
+            and ansible_os_family == 'Debian')
+     else 'proxy' }}
+
+# static mode — where the deb drops the bundle.
 openzro_nginx_dashboard_root: /usr/share/openzro-dashboard
+
+# proxy mode — must match openzro_dashboard_publish's host:port.
+openzro_nginx_dashboard_upstream: "127.0.0.1:8080"
 
 # Upstream addresses — tweak per inventory if the management /
 # signal hosts aren't on the same machine as nginx. The default

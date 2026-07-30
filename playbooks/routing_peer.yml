@@ -12,7 +12,7 @@
 # management as Network Resources tied to the routing peer's group,
 # so the same playbook scales horizontally without per-host config.
 
-- name: Common (apt/yum repo + GPG key)
+- name: Common (package repo + GPG key, firewalld, SELinux)
   hosts: routing_peer
   become: true
   roles:

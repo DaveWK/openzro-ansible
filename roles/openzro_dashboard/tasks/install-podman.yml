@@ -1,0 +1,71 @@
+---
+# podman install, via a quadlet. The generator at
+# /usr/lib/systemd/system-generators/podman-system-generator turns
+# the .container file into openzro-dashboard.service on every
+# daemon-reload — there is no unit file on disk to look for, which
+# is the usual surprise when debugging this path.
+#
+# Quadlet needs podman >= 4.4. Fedora 38+, RHEL/Rocky/Alma 9.2+ and
+# Debian 13 / Ubuntu 24.04+ all clear that; the assert below fails
+# loudly rather than leaving a .container file that nothing reads.
+
+- name: Install podman
+  ansible.builtin.package:
+    name: podman
+    state: present
+
+- name: Assert quadlet support is present
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system-generators/podman-system-generator
+  register: openzro_quadlet_generator
+  failed_when: not openzro_quadlet_generator.stat.exists
+
+- name: Ensure the quadlet directory exists
+  ansible.builtin.file:
+    path: "{{ openzro_dashboard_quadlet_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render dashboard env file
+  ansible.builtin.template:
+    src: openzro-dashboard.env.j2
+    dest: "{{ openzro_dashboard_env_file }}"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: restart openzro-dashboard
+
+- name: Render dashboard quadlet
+  ansible.builtin.template:
+    src: openzro-dashboard.container.j2
+    dest: "{{ openzro_dashboard_quadlet_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd for the dashboard unit
+    - restart openzro-dashboard
+
+# The generated unit doesn't exist until the template above has landed
+# AND systemd has reloaded. Flush here rather than at end-of-play so
+# the enable/start below has something to act on during a first install.
+- name: Materialise the generated unit
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start the dashboard
+  ansible.builtin.systemd:
+    name: "{{ openzro_dashboard_service }}"
+    enabled: true
+    state: started
+
+- name: Wait for the dashboard to answer on loopback
+  ansible.builtin.uri:
+    url: "{{ openzro_dashboard_probe_url }}"
+    status_code: 200
+  register: openzro_dashboard_probe
+  retries: 12
+  delay: 5
+  until: openzro_dashboard_probe is succeeded

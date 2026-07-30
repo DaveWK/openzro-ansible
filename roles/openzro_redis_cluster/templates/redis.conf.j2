@@ -1,8 +1,11 @@
 # {{ ansible_managed }}
-# redis-server config for the openZro management cluster
-# coordinator. Master/replica topology — replicas mirror the
+# {{ openzro_redis_flavour | trim }} config for the openZro management
+# cluster coordinator. Master/replica topology — replicas mirror the
 # master's keyspace and serve reads if the openzro coordinator
 # falls back to them.
+#
+# Every directive below is common to redis and valkey; valkey kept
+# the config syntax on the fork, so this one template serves both.
 
 bind {{ openzro_redis_bind }}
 port {{ openzro_redis_port }}

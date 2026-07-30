@@ -1,10 +1,32 @@
 ---
-# Add pkg.openzro.io as an apt or yum repo, import the signing key.
-# Idempotent — re-running has no effect after the first apply.
+# Add pkg.openzro.io as an apt or dnf repo, import the signing key,
+# then apply the RHEL-family host prerequisites (EPEL, firewalld,
+# SELinux). Idempotent — re-running has no effect after the first
+# apply.
+#
+# Gating is on ansible_os_family, NOT ansible_pkg_mgr. Fedora 41+
+# reports ansible_pkg_mgr == "dnf5", so `when: ansible_pkg_mgr in
+# ["dnf", "yum"]` silently skips every RPM task on a current Fedora
+# host — the play "succeeds" having installed nothing.
 
-- name: Detect package manager family
+- name: Assert the OS family is supported
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family in ["Debian", "RedHat"]
+    fail_msg: >-
+      openzro-ansible supports Debian-family (Debian, Ubuntu) and
+      RedHat-family (Fedora, RHEL, Rocky, AlmaLinux, CentOS Stream)
+      hosts. This host reports ansible_os_family={{ ansible_os_family }}.
+      The component roles install via ansible.builtin.package, so other
+      families may well work — drop this assert and report what breaks.
+
+- name: Classify the host's package family
   ansible.builtin.set_fact:
-    openzro_pkg_family: "{{ ansible_pkg_mgr }}"
+    openzro_pkg_family: "{{ 'apt' if ansible_os_family == 'Debian' else 'rpm' }}"
+    # Enterprise Linux == RedHat family minus Fedora. The distinction
+    # matters for EPEL (EL only) and for certbot (EL's comes from EPEL
+    # and lags upstream; Fedora's is current).
+    openzro_is_enterprise_linux: "{{ ansible_os_family == 'RedHat' and ansible_distribution != 'Fedora' }}"
 
 - name: Ensure /etc/openzro exists
   ansible.builtin.file:
@@ -13,6 +35,10 @@
     owner: root
     group: root
     mode: "0755"
+
+# ---------------------------------------------------------------------
+# Debian / Ubuntu
+# ---------------------------------------------------------------------
 
 - name: APT — install prerequisites for HTTPS repo
   ansible.builtin.apt:
@@ -25,9 +51,20 @@
     cache_valid_time: 3600
   when: openzro_pkg_family == "apt"
 
+# Minimal Debian images don't ship /etc/apt/keyrings — the get_url
+# below fails on "directory does not exist" without this.
+- name: APT — ensure the keyring directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: openzro_pkg_family == "apt"
+
 - name: APT — fetch openzro signing key (armored)
   ansible.builtin.get_url:
-    url: https://pkg.openzro.io/openzro-archive-key.asc
+    url: "{{ openzro_repo_key_url }}"
     dest: /etc/apt/keyrings/openzro-archive-key.asc
     mode: "0644"
     force: false
@@ -41,33 +78,61 @@
 
 - name: APT — register pkg.openzro.io repository
   ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/openzro-archive-keyring.gpg] https://pkg.openzro.io/apt stable main"
+    repo: "deb [signed-by=/etc/apt/keyrings/openzro-archive-keyring.gpg] {{ openzro_repo_baseurl_apt }} stable main"
     filename: openzro
     state: present
     update_cache: true
   when: openzro_pkg_family == "apt"
 
-- name: YUM/DNF — fetch openzro signing key
+# ---------------------------------------------------------------------
+# Fedora / RHEL / Rocky / AlmaLinux / CentOS Stream
+# ---------------------------------------------------------------------
+
+- name: RPM — fetch openzro signing key
   ansible.builtin.get_url:
-    url: https://pkg.openzro.io/openzro-archive-key.asc
+    url: "{{ openzro_repo_key_url }}"
     dest: /etc/pki/rpm-gpg/RPM-GPG-KEY-openzro
     mode: "0644"
     force: false
-  when: openzro_pkg_family in ["dnf", "yum"]
+  when: openzro_pkg_family == "rpm"
 
-- name: YUM/DNF — import signing key into rpm
+- name: RPM — import signing key into rpm
   ansible.builtin.rpm_key:
     state: present
     key: /etc/pki/rpm-gpg/RPM-GPG-KEY-openzro
-  when: openzro_pkg_family in ["dnf", "yum"]
+  when: openzro_pkg_family == "rpm"
 
-- name: YUM/DNF — register pkg.openzro.io repository
+- name: RPM — register pkg.openzro.io repository
   ansible.builtin.yum_repository:
     name: openzro
     description: openZro
-    baseurl: "https://pkg.openzro.io/rpm/$basearch"
+    baseurl: "{{ openzro_repo_baseurl_rpm }}"
     gpgcheck: true
-    gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-openzro
+    gpgkey: "file:///etc/pki/rpm-gpg/RPM-GPG-KEY-openzro"
     repo_gpgcheck: true
     enabled: true
-  when: openzro_pkg_family in ["dnf", "yum"]
+  when: openzro_pkg_family == "rpm"
+
+# EPEL carries certbot and its DNS plugins on Enterprise Linux. Fedora
+# has them in the base repo, so this is EL-only.
+- name: RPM — enable EPEL (Enterprise Linux only)
+  ansible.builtin.package:
+    name: "{{ openzro_epel_release_package }}"
+    state: present
+  when:
+    - openzro_is_enterprise_linux | bool
+    - openzro_enable_epel | bool
+
+# ---------------------------------------------------------------------
+# Host prerequisites that only bite on RHEL-family targets
+# ---------------------------------------------------------------------
+
+- name: Configure SELinux for the openzro stack
+  ansible.builtin.include_tasks: selinux.yml
+  when: openzro_manage_selinux | bool
+  tags: [selinux]
+
+- name: Open the openzro ports in firewalld
+  ansible.builtin.include_tasks: firewall.yml
+  when: openzro_manage_firewall | bool
+  tags: [firewall]

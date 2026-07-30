@@ -1,0 +1,11 @@
+---
+# Version-pin syntax differs by package manager: apt wants
+# `pkg=1.2.3`, dnf/yum want `pkg-1.2.3`. Both repos publish the
+# alpha versions with a tilde (`0.53.1~alpha.86`), so that's the
+# string openzro_version should carry — not the `-alpha.86` form
+# used in git tags.
+openzro_pkg_version_separator: "{{ '=' if ansible_os_family == 'Debian' else '-' }}"
+
+openzro_routing_peer_pkg_spec: >-
+  {{ openzro_routing_peer_package }}{{ (openzro_pkg_version_separator ~ openzro_version)
+     if openzro_version | default('') | length > 0 else '' }}

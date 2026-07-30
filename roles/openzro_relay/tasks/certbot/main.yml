@@ -41,20 +41,20 @@
   when: openzro_relay_cert_provider == "certbot_dns_cloudflare"
 
 # certbot ships its own renewal timer; we only need to make sure it's
-# running. The unit name differs per distro — try both with
-# failed_when: false so the wrong-distro task is a no-op.
-- name: Ensure certbot renewal timer is enabled (Debian path)
-  ansible.builtin.systemd:
-    name: certbot.timer
-    enabled: true
-    state: started
-  failed_when: false
-  when: ansible_pkg_mgr == "apt"
+# running. The unit is certbot.timer on Debian/Ubuntu and
+# certbot-renew.timer on RHEL-family — ask systemd which one landed
+# rather than mapping distro to name, which also covers the case where
+# a host has certbot from a source that names it differently.
+- name: Detect the certbot renewal timer unit
+  ansible.builtin.shell: >-
+    systemctl list-unit-files --type=timer
+    | awk '/^certbot/ {print $1; exit}'
+  register: openzro_relay_certbot_timer
+  changed_when: false
 
-- name: Ensure certbot renewal timer is enabled (RHEL path)
+- name: Ensure the certbot renewal timer is enabled
   ansible.builtin.systemd:
-    name: certbot-renew.timer
+    name: "{{ openzro_relay_certbot_timer.stdout }}"
     enabled: true
     state: started
-  failed_when: false
-  when: ansible_pkg_mgr in ["dnf", "yum"]
+  when: openzro_relay_certbot_timer.stdout | length > 0
