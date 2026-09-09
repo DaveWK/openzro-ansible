@@ -18,8 +18,8 @@ openzro_relay_port: 33080
 
 # ---------------------------------------------------------------------
 # OIDC / Identity provider. Lab default: Dex on the same host (managed
-# separately via docker / a sister role, not this playbook). For real
-# deployments point at Keycloak, Auth0, Authentik, etc.
+# separately — not by this playbook). For real deployments point at
+# Keycloak, Auth0, Authentik, etc.
 # ---------------------------------------------------------------------
 openzro_oidc_issuer: "https://dex.{{ openzro_public_domain }}"
 openzro_oidc_client_id: "openzro-dashboard"
@@ -68,6 +68,45 @@ openzro_tls_mode: self_signed   # lab default — switch to certbot_http for pro
 # openzro_tls_key_path:  /etc/letsencrypt/live/example.com/privkey.pem
 
 # ---------------------------------------------------------------------
+# Dashboard install method.
+#
+#   auto     (default) package on Debian/Ubuntu, podman elsewhere
+#   package  the openzro-dashboard deb, served off disk by nginx.
+#            APT-ONLY — pkg.openzro.io publishes no dashboard rpm
+#   podman   ghcr.io/openzro/dashboard as a quadlet on loopback,
+#            nginx proxies to it
+#   docker   the same image under docker, in a systemd wrapper unit
+#
+# Leave at auto unless you have a reason — the auto rule already
+# encodes which options actually exist on your distro.
+# ---------------------------------------------------------------------
+# openzro_dashboard_install_method: auto
+# openzro_dashboard_image_tag: "latest"     # defaults to openzro_version when pinned
+
+# ---------------------------------------------------------------------
+# RHEL / Fedora host handling. Both no-op on Debian/Ubuntu, and both
+# no-op on RHEL hosts that don't actually run firewalld / SELinux, so
+# the defaults are safe to leave alone.
+#
+# firewalld: the role opens the ports the host's inventory groups
+# imply (80+443 for the dashboard host, 33080 tcp+udp for relays,
+# cluster ports between management hosts). Set false when a cloud
+# security group is the only thing that should decide reachability.
+#
+# SELinux: sets httpd_can_network_connect so nginx may open sockets to
+# the management/signal upstreams. Without it every proxied request
+# 502s with an AVC denial and nothing in the nginx config looks wrong.
+# ---------------------------------------------------------------------
+# openzro_manage_firewall: true
+# openzro_firewall_zone: public
+# openzro_firewall_extra_ports: []
+# openzro_manage_selinux: true
+
+# EPEL, needed for certbot on RHEL/Rocky/Alma (not Fedora — its repos
+# carry certbot and the DNS plugins already).
+# openzro_enable_epel: true
+
+# ---------------------------------------------------------------------
 # Cloud LB — only relevant when running this playbook against a host
 # in AWS or GCP. Set to "none" for bare-metal / VPS / on-prem.
 # ---------------------------------------------------------------------
@@ -79,5 +118,7 @@ openzro_cloud: none   # none | aws | gcp
 openzro_log_level: "info"   # trace | debug | info | warn | error
 
 # Pin a specific release (without the "v" prefix). Leave unset to
-# install whatever apt/dnf considers the latest in the openzro repo.
-# openzro_version: "0.53.1-alpha.9"
+# install whatever the package manager considers latest in the openzro
+# repo. Use the TILDE spelling — that's how both repos version the
+# pre-releases; the `-alpha.86` form from the git tags matches nothing.
+# openzro_version: "0.53.1~alpha.86"

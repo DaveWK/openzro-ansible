@@ -7,8 +7,12 @@ name: Lint
 # cloud credentials in CI.
 #
 # A more thorough Molecule-based test matrix (idempotency runs in
-# Debian + Rocky containers, per-provider certbot scenarios) is a
-# follow-up — too heavy for the always-on lint gate.
+# Debian + Fedora + Rocky containers, per-provider certbot scenarios)
+# is a follow-up — too heavy for the always-on lint gate. Note that
+# syntax-check cannot catch the class of bug that motivated the
+# distro audit: `when: ansible_pkg_mgr in ["dnf", "yum"]` is valid
+# YAML and valid Jinja, it just silently matches nothing on a Fedora
+# host reporting `dnf5`. Only a real run against each distro finds it.
 
 on:
   pull_request:
@@ -35,9 +39,12 @@ jobs:
         # ~30s uncached, not worth a fixture file just to enable caching.
 
       - name: Install ansible-core + ansible-lint
+        # 2.18 is the floor, not a preference: it's the release whose
+        # ansible.builtin.package dispatches to the dnf5 module, which
+        # is what Fedora 41+ and RHEL 10 need.
         run: |
           python -m pip install --upgrade pip
-          pip install "ansible-core>=2.16,<3.0" "ansible-lint>=24.0"
+          pip install "ansible-core>=2.18,<3.0" "ansible-lint>=24.0"
 
       - name: Install Ansible collections (non-cloud)
         # Cloud-heavy collections (amazon.aws, google.cloud) are
@@ -47,7 +54,6 @@ jobs:
         run: |
           ansible-galaxy collection install \
             ansible.posix \
-            community.general \
             community.crypto
 
       - name: Run ansible-lint (basic profile, see .ansible-lint)

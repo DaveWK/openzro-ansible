@@ -1,0 +1,64 @@
+---
+# docker install. Deliberately a hand-written systemd unit wrapping
+# `docker run` rather than a compose file: it gives the same
+# start/stop/restart/enable semantics as the podman quadlet path, so
+# `systemctl status openzro-dashboard` and the update playbook's
+# handlers behave identically whichever runtime the operator picked,
+# and it keeps the role free of a community.docker dependency for
+# one stateless container.
+#
+# Set openzro_dashboard_docker_package to "" if docker is already
+# installed from Docker's own repo — the role then manages only the
+# unit and leaves the engine alone.
+
+- name: Install the docker engine
+  ansible.builtin.package:
+    name: "{{ openzro_dashboard_docker_package }}"
+    state: present
+  when: openzro_dashboard_docker_package | length > 0
+
+- name: Enable + start the docker daemon
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Render dashboard env file
+  ansible.builtin.template:
+    src: openzro-dashboard.env.j2
+    dest: "{{ openzro_dashboard_env_file }}"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: restart openzro-dashboard
+
+- name: Render the dashboard systemd unit
+  ansible.builtin.template:
+    src: openzro-dashboard-docker.service.j2
+    dest: "{{ openzro_dashboard_docker_unit_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd for the dashboard unit
+    - restart openzro-dashboard
+
+- name: Materialise the unit before enabling it
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start the dashboard
+  ansible.builtin.systemd:
+    name: "{{ openzro_dashboard_service }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for the dashboard to answer on loopback
+  ansible.builtin.uri:
+    url: "{{ openzro_dashboard_probe_url }}"
+    status_code: 200
+  register: openzro_dashboard_probe
+  retries: 12
+  delay: 5
+  until: openzro_dashboard_probe is succeeded

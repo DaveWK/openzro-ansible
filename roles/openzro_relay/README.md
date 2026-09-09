@@ -44,11 +44,17 @@ the role issue + renew a Let's Encrypt cert via DNS-01:
 
 When set to anything other than `none`, the role:
 
-1. Installs certbot + the matching DNS plugin
-   (apt path: distro packages; RHEL/Rocky path: a `/opt/certbot`
-   venv with the binary symlinked to `/usr/bin/certbot` because
-   the EPEL `certbot` RPM's Python isolation can't load
-   pip-installed plugins).
+1. Installs certbot + the matching DNS plugin. Three paths:
+   - **Debian/Ubuntu** — distro packages (`certbot` +
+     `python3-certbot-dns-<provider>`).
+   - **Fedora** — same, from the Fedora repos, which carry current
+     versions of both.
+   - **Enterprise Linux (RHEL/Rocky/Alma)** — a `/opt/certbot` venv
+     with the binary symlinked to `/usr/bin/certbot`, because the
+     EPEL `certbot` RPM's Python isolation can't load pip-installed
+     plugins (symptom: `certbot: error: unrecognized arguments:
+     --dns-<provider>-...`). EPEL itself is enabled by the `common`
+     role.
 2. Issues the cert with `--expand` and both
    `openzro_relay_public_address` + `openzro_relay_cluster_headless`
    as `-d` SANs.
@@ -60,9 +66,10 @@ When set to anything other than `none`, the role:
    `systemctl reload-or-restart openzro-relay` so the daemon picks
    up the rotated cert.
 
-The renewal timer (`certbot.timer` on Debian, `certbot-renew.timer`
-on RHEL) ships with the certbot package itself; the role only makes
-sure it's enabled.
+The renewal timer ships with the certbot package itself — named
+`certbot.timer` on Debian and `certbot-renew.timer` on RHEL-family.
+The role asks systemd which one landed rather than mapping distro to
+name, then enables it.
 
 ### Provider-specific knobs
 

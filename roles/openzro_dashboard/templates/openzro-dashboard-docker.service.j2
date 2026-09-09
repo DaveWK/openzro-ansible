@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+#
+# docker equivalent of the podman quadlet in
+# openzro-dashboard.container.j2 — same unit name, same lifecycle,
+# so everything downstream (handlers, update.yml, `systemctl status`)
+# is runtime-agnostic.
+
+[Unit]
+Description=openZro dashboard (static SPA behind nginx)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=15s
+# Leftover from an unclean stop would make `docker run --name` fail
+# with "name already in use"; `-` prefix so a missing container isn't
+# an error on a first start.
+ExecStartPre=-/usr/bin/docker rm -f {{ openzro_dashboard_container_name }}
+# Also `-` prefixed: a registry that's briefly unreachable shouldn't
+# stop a host from starting the image it already has on disk.
+ExecStartPre=-/usr/bin/docker pull {{ openzro_dashboard_image }}:{{ openzro_dashboard_image_tag }}
+ExecStart=/usr/bin/docker run --rm \
+    --name {{ openzro_dashboard_container_name }} \
+    --env-file {{ openzro_dashboard_env_file }} \
+    --security-opt no-new-privileges \
+    --publish {{ openzro_dashboard_publish }} \
+    {{ openzro_dashboard_image }}:{{ openzro_dashboard_image_tag }}
+ExecStop=/usr/bin/docker stop {{ openzro_dashboard_container_name }}
+
+[Install]
+WantedBy=multi-user.target

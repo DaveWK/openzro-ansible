@@ -1,9 +1,24 @@
 ---
 # Installs nats-server on every management host and clusters them
 # together on tcp/{{ openzro_nats_cluster_port }}.
+#
+# Synadia publishes a Debian repo but no RPM one, so RHEL-family hosts
+# get the upstream release tarball instead. Gating is on
+# ansible_os_family rather than ansible_pkg_mgr because Fedora 41+
+# reports `dnf5`, which the old `in ["dnf", "yum"]` test missed — the
+# effect was a management host that quietly ended up with no
+# nats-server binary and a unit that failed to start.
 
 - name: Add nats-io apt repo (Debian/Ubuntu)
   block:
+    - name: Ensure the keyring directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Add nats-io GPG key
       ansible.builtin.get_url:
         url: https://download.synadia.com/debian/synadia.asc
@@ -16,16 +31,16 @@
         filename: synadia
         state: present
         update_cache: true
-  when: ansible_pkg_mgr == "apt"
+  when: ansible_os_family == "Debian"
 
-- name: Install nats-server (apt)
-  ansible.builtin.apt:
+- name: Install nats-server from the Synadia repo (Debian/Ubuntu)
+  ansible.builtin.package:
     name: "{{ openzro_nats_package }}"
     state: present
-  when: ansible_pkg_mgr == "apt"
+  when: ansible_os_family == "Debian"
   notify: restart nats-server
 
-- name: Install nats-server from upstream binary release (rpm distros)
+- name: Install nats-server from upstream binary release (RHEL family)
   block:
     - name: Detect arch
       ansible.builtin.set_fact:
@@ -33,18 +48,32 @@
 
     - name: Download nats-server release
       ansible.builtin.get_url:
-        url: "https://github.com/nats-io/nats-server/releases/download/v2.10.20/nats-server-v2.10.20-linux-{{ nats_arch }}.tar.gz"
-        dest: /tmp/nats-server.tar.gz
+        url: >-
+          https://github.com/nats-io/nats-server/releases/download/v{{ openzro_nats_version }}/nats-server-v{{ openzro_nats_version }}-linux-{{
+          nats_arch }}.tar.gz
+        dest: "/tmp/nats-server-{{ openzro_nats_version }}.tar.gz"
+        checksum: "{{ openzro_nats_checksum | default(omit, true) }}"
         mode: "0644"
 
     - name: Extract nats-server
       ansible.builtin.unarchive:
-        src: /tmp/nats-server.tar.gz
+        src: "/tmp/nats-server-{{ openzro_nats_version }}.tar.gz"
         dest: /usr/local/bin/
         remote_src: true
         creates: /usr/local/bin/nats-server
         extra_opts: ["--strip-components=1", "--wildcards", "*/nats-server"]
-  when: ansible_pkg_mgr in ["dnf", "yum"]
+
+    # /usr/local/bin content lands as usr_t after an unarchive, which
+    # SELinux won't let systemd exec. Harmless where SELinux is off.
+    - name: Restore SELinux labels on the extracted binary
+      ansible.builtin.command:
+        cmd: restorecon -F /usr/local/bin/nats-server
+      changed_when: false
+      failed_when: false
+      when:
+        - ansible_selinux | default({}, true) is mapping
+        - ansible_selinux.status | default('disabled') == 'enabled'
+  when: ansible_os_family == "RedHat"
   notify: restart nats-server
 
 - name: Ensure nats user exists

@@ -12,6 +12,15 @@
 
 openzro_nats_package: nats-server
 openzro_nats_service: nats-server
+
+# RHEL-family only: Synadia ships an apt repo but no RPM one, so these
+# hosts install the upstream release tarball into /usr/local/bin.
+# Bump the version here rather than editing the task. Set a checksum
+# ("sha256:<hex>") to have get_url verify the download — worth doing
+# for anything you'd call production, and left empty by default only
+# because the value changes with every version bump above.
+openzro_nats_version: "2.10.20"
+openzro_nats_checksum: ""
 openzro_nats_user: nats
 openzro_nats_group: nats
 openzro_nats_data_dir: /var/lib/nats

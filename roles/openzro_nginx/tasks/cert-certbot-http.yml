@@ -13,6 +13,10 @@
       openzro_tls_email must be set when openzro_tls_mode = certbot_http.
       It's the address Let's Encrypt uses to send renewal warnings.
 
+# certbot is in the base repos on Debian/Ubuntu and Fedora. On
+# Enterprise Linux it comes from EPEL, which the `common` role enables
+# (openzro_enable_epel) — without that this fails with "No package
+# certbot available".
 - name: Install certbot
   ansible.builtin.package:
     name: certbot
@@ -39,11 +43,14 @@
     group: root
     mode: "0644"
 
+# Debian only — on RHEL/Fedora the file already sits in conf.d/, which
+# nginx.conf includes, so there's nothing to symlink.
 - name: Enable bootstrap site
   ansible.builtin.file:
     src: "{{ openzro_nginx_site_path }}"
     dest: "{{ openzro_nginx_enabled_path }}"
     state: link
+  when: openzro_nginx_enabled_path | length > 0
 
 - name: Reload nginx for ACME bootstrap
   ansible.builtin.systemd:
@@ -80,6 +87,11 @@
     | awk '/^certbot/ {print $1; exit}'
   register: openzro_certbot_timer
   changed_when: false
+  # Read-only probe, so let it run under --check too. A task skipped in
+  # check mode registers no stdout, and the next task dereferences
+  # .stdout in its `when:` — so a dry run fails here instead of
+  # reporting what it would do.
+  check_mode: false
 
 - name: Enable certbot renewal timer
   ansible.builtin.systemd:

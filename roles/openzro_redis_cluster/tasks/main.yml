@@ -1,4 +1,9 @@
 ---
+# Package, service, user and config path all vary by distro, and on
+# Fedora the software itself is valkey rather than redis — see
+# defaults/main.yml. Everything below is written against those vars so
+# the task list stays flavour-agnostic.
+
 - name: Validate redis password is set
   ansible.builtin.assert:
     that:
@@ -7,7 +12,7 @@
       openzro_redis_password is required when binding redis to
       0.0.0.0. Vault-encrypt this in your inventory's group_vars.
 
-- name: Install redis-server
+- name: Install {{ openzro_redis_package | trim }}
   ansible.builtin.package:
     name: "{{ openzro_redis_package }}"
     state: present

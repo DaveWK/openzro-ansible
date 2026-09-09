@@ -42,9 +42,11 @@
   ansible.builtin.include_tasks: cert-self-signed.yml
   when: openzro_tls_mode == "self_signed"
 
-# Site config + activation. The default site (sites-enabled/default)
-# stays in place — the openzro site uses the operator's hostname
-# only, so the two won't collide.
+# Site config + activation. On Debian the stock sites-enabled/default
+# stays in place — the openzro site uses the operator's hostname only,
+# so the two won't collide. On RHEL/Fedora nginx.conf's own
+# `include /etc/nginx/conf.d/*.conf` is the activation, so dropping
+# the file in place is the whole step and there's no symlink to make.
 - name: Render openzro nginx site
   ansible.builtin.template:
     src: openzro.conf.j2
@@ -52,6 +54,7 @@
     owner: root
     group: root
     mode: "0644"
+    backup: true
   notify: reload nginx
 
 - name: Enable openzro nginx site
@@ -60,6 +63,17 @@
     dest: "{{ openzro_nginx_enabled_path }}"
     state: link
   notify: reload nginx
+  when: openzro_nginx_enabled_path | length > 0
+
+# A bad render must not reach a reload. Failing here aborts the play
+# before handlers flush, so the running nginx keeps serving the config
+# it already loaded; `backup: true` above leaves the previous file
+# next to it for the diff.
+- name: Validate the full nginx config
+  ansible.builtin.command:
+    cmd: nginx -t
+  changed_when: false
+  when: openzro_nginx_validate_config | bool
 
 - name: Ensure nginx is running and enabled
   ansible.builtin.systemd:

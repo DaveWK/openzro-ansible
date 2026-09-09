@@ -1,5 +1,5 @@
 ---
-- name: Common (apt/yum repo + GPG key)
+- name: Common (package repo + GPG key, firewalld, SELinux)
   hosts: management
   become: true
   roles:

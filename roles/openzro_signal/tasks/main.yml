@@ -1,18 +1,15 @@
 ---
-- name: Install openzro-signal package (apt)
-  ansible.builtin.apt:
-    name: "{{ openzro_signal_package }}{{ ('=' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
+# `package` rather than apt/dnf tasks gated on ansible_pkg_mgr —
+# see the comment in roles/openzro_management/tasks/main.yml for why
+# (Fedora 41+ reports `dnf5` and matched neither gate).
+#
+# On update_cache: see the comment in
+# roles/openzro_management/tasks/main.yml — `common` refreshes the
+# index before these roles run.
+- name: Install openzro-signal package
+  ansible.builtin.package:
+    name: "{{ openzro_signal_pkg_spec }}"
     state: present
-    update_cache: true
-  when: ansible_pkg_mgr == "apt"
-  notify: restart openzro-signal
-
-- name: Install openzro-signal package (dnf/yum)
-  ansible.builtin.dnf:
-    name: "{{ openzro_signal_package }}{{ ('-' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
-    state: present
-    update_cache: true
-  when: ansible_pkg_mgr in ["dnf", "yum"]
   notify: restart openzro-signal
 
 - name: Render systemd EnvironmentFile

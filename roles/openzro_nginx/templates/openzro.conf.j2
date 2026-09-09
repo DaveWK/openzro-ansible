@@ -24,6 +24,15 @@ upstream openzro_signal_grpc {
     keepalive 32;
 }
 
+{% if openzro_nginx_serve_dashboard and openzro_nginx_dashboard_mode | trim == 'proxy' %}
+# Dashboard container (podman quadlet or docker unit), published on
+# loopback by the openzro_dashboard role.
+upstream openzro_dashboard {
+    server {{ openzro_nginx_dashboard_upstream }};
+    keepalive 8;
+}
+{% endif %}
+
 # HTTP — redirect to HTTPS, except the ACME challenge path so
 # certbot.timer can renew the cert without taking the site down.
 server {
@@ -97,13 +106,26 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-{% if openzro_nginx_serve_dashboard %}
-    # Dashboard SPA (Next.js static export).
+{% if openzro_nginx_serve_dashboard and openzro_nginx_dashboard_mode | trim == 'static' %}
+    # Dashboard SPA (Next.js static export), served straight off disk
+    # from the openzro-dashboard package's bundle.
     # try_files falls back to index.html so client-side routing
     # doesn't 404 on direct deep-links.
     location / {
         root {{ openzro_nginx_dashboard_root }};
         try_files $uri $uri/ /index.html;
+    }
+{% elif openzro_nginx_serve_dashboard %}
+    # Dashboard SPA, served by the container on loopback. The image is
+    # itself an nginx serving the static export, so the SPA fallback
+    # for deep-links happens in there — nothing to try_files here.
+    location / {
+        proxy_pass http://openzro_dashboard;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 {% else %}
     # Dashboard not served by this nginx — front it elsewhere

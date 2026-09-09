@@ -1,0 +1,67 @@
+---
+# firewalld rules derived from the host's inventory groups. Included
+# from tasks/main.yml; no-ops when firewalld isn't installed or isn't
+# running, which covers Debian/Ubuntu and any RHEL host whose operator
+# manages the edge with a cloud security group instead.
+#
+# Ports, and who needs them:
+#
+#   80/tcp, 443/tcp   nginx — public. 80 is not optional when
+#                     openzro_tls_mode is certbot_http; the HTTP-01
+#                     challenge is served from it and renewals fail
+#                     silently 60 days later without it.
+#   33080/tcp+udp     relay — public. Peers dial it directly, NOT
+#                     through nginx (it's L4).
+#   6222/tcp          embedded-NATS cluster gossip, management ↔
+#                     management only. Also the standalone-NATS
+#                     cluster port when openzro_cluster_backend=nats.
+#   4222/tcp          standalone NATS client port (backend=nats only).
+#   6379/tcp          redis (backend=redis only).
+#   33071, 33073/tcp  management REST + gRPC — loopback-only in the
+#   10000/tcp         signal gRPC          all-in-one topology, so
+#                     these stay shut unless
+#                     openzro_firewall_expose_backends is set.
+
+- name: Check whether firewalld is running
+  ansible.builtin.systemd:
+    name: firewalld
+  register: openzro_firewalld_state
+  failed_when: false
+  changed_when: false
+
+- name: Note whether firewalld is managing this host
+  ansible.builtin.set_fact:
+    openzro_firewalld_active: "{{ openzro_firewalld_state.status is defined and openzro_firewalld_state.status.ActiveState | default('') == 'active' }}"
+
+- name: Compute the port set for this host's roles
+  ansible.builtin.set_fact:
+    openzro_firewall_computed_ports: >-
+      {{
+        (['80/tcp', '443/tcp'] if 'dashboard' in group_names else [])
+        + ([(openzro_relay_port | default(33080) | string) ~ '/tcp',
+            (openzro_relay_port | default(33080) | string) ~ '/udp'] if 'relay' in group_names else [])
+        + ([(openzro_cluster_peer_port | default(6222) | string) ~ '/tcp']
+           if 'management' in group_names and (groups['management'] | default([]) | length) > 1 else [])
+        + ([(openzro_nats_client_port | default(4222) | string) ~ '/tcp']
+           if 'management' in group_names and openzro_cluster_backend | default('none') == 'nats' else [])
+        + ([(openzro_redis_port | default(6379) | string) ~ '/tcp']
+           if 'management' in group_names and openzro_cluster_backend | default('none') == 'redis' else [])
+        + (['33071/tcp', '33073/tcp'] if 'management' in group_names and openzro_firewall_expose_backends | bool else [])
+        + (['10000/tcp'] if 'signal' in group_names and openzro_firewall_expose_backends | bool else [])
+        + openzro_firewall_extra_ports
+      }}
+  when: openzro_firewalld_active | bool
+
+# `immediate: true` alongside `permanent: true` so the run that opens
+# the port is also the run that can reach the service — without it the
+# rule only lands after a firewalld reload, and the health-check waits
+# later in site.yml / update.yml time out against a still-closed port.
+- name: Open the openzro ports
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    zone: "{{ openzro_firewall_zone }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ openzro_firewall_computed_ports | unique }}"
+  when: openzro_firewalld_active | bool

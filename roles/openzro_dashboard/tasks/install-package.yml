@@ -1,0 +1,38 @@
+---
+# Distro-package install (Debian/Ubuntu):
+#   1. install openzro-dashboard — static bundle + render-env.sh
+#   2. render the env file from the role's template
+#   3. run render-env.sh to substitute the values into the bundle
+# nginx serves openzro_dashboard_root directly; nothing listens on a
+# port here.
+
+# `package` rather than apt/dnf tasks gated on ansible_pkg_mgr — see
+# roles/openzro_management/tasks/main.yml. It also covers pacman,
+# which used to need a task of its own here.
+- name: Install openzro-dashboard package
+  ansible.builtin.package:
+    name: "{{ openzro_dashboard_pkg_spec }}"
+    state: present
+  register: openzro_dashboard_pkg
+
+- name: Render dashboard env file
+  ansible.builtin.template:
+    src: openzro-dashboard.env.j2
+    dest: "{{ openzro_dashboard_env_file }}"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  register: openzro_dashboard_env_render
+
+# Re-render the static bundle's $$VAR placeholders whenever the
+# package was upgraded OR the env values changed. The script is
+# idempotent (uses .orig snapshots).
+- name: Render env values into the static bundle
+  ansible.builtin.command:
+    cmd: "{{ openzro_dashboard_root }}/render-env.sh"
+  environment:
+    DASHBOARD_ROOT: "{{ openzro_dashboard_root }}"
+    ENV_FILE: "{{ openzro_dashboard_env_file }}"
+  when: openzro_dashboard_pkg.changed or openzro_dashboard_env_render.changed
+  changed_when: true

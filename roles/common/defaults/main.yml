@@ -1,0 +1,70 @@
+---
+# Host-level prerequisites shared by every openzro component:
+# the package repo, and the two things a RHEL-family host has that
+# a Debian one doesn't — SELinux in enforcing mode and firewalld
+# running by default. Both are no-ops on Debian/Ubuntu.
+
+# ---------------------------------------------------------------------
+# Package repo
+# ---------------------------------------------------------------------
+# Force a package-index refresh even if the cached one is still within
+# cache_valid_time. The component roles install with ansible.builtin.package,
+# which has no update_cache of its own and relies on this role having
+# refreshed the index earlier in the play. Set true when chasing a version
+# published in the last hour, which would otherwise resolve against a
+# stale index and fail with "no candidate".
+openzro_force_cache_update: false
+
+openzro_repo_baseurl_apt: "https://pkg.openzro.io/apt"
+openzro_repo_baseurl_rpm: "https://pkg.openzro.io/rpm/$basearch"
+openzro_repo_key_url: "https://pkg.openzro.io/openzro-archive-key.asc"
+
+# EPEL — Enterprise Linux (Rocky / Alma / CentOS Stream / RHEL) only.
+# Fedora never needs it: certbot, its DNS plugins, and nginx are all
+# in the Fedora repos. EL needs it for certbot.
+#
+# `epel-release` resolves from the `extras` repo on Rocky / Alma /
+# CentOS Stream. On RHEL proper, `extras` doesn't carry it — either
+# follow Red Hat's documented EPEL enablement first, or override this
+# with the release RPM's URL:
+#
+#   openzro_epel_release_package: >-
+#     https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+openzro_enable_epel: true
+openzro_epel_release_package: epel-release
+
+# ---------------------------------------------------------------------
+# firewalld
+#
+# Fedora and RHEL ship firewalld enabled; a stock install drops every
+# inbound port this stack needs. The tasks compute the port list from
+# the host's inventory groups and no-op entirely when firewalld isn't
+# installed or isn't running — so Debian/Ubuntu hosts (and RHEL hosts
+# where the operator manages the edge elsewhere) are unaffected.
+#
+# Set false when a cloud security group / external firewall is the
+# only thing that should decide reachability.
+# ---------------------------------------------------------------------
+openzro_manage_firewall: true
+openzro_firewall_zone: public
+
+# Extra ports to open on top of the group-derived set, e.g.
+# ["9090/tcp"] for a metrics scraper.
+openzro_firewall_extra_ports: []
+
+# Open management gRPC/REST (33073, 33071) and signal gRPC (10000) at
+# the host firewall. Default false: the reference topology puts nginx
+# in front and those ports are only reached over loopback. Set true
+# when management / signal live on hosts of their own and nginx has to
+# cross the network to reach them.
+openzro_firewall_expose_backends: false
+
+# ---------------------------------------------------------------------
+# SELinux
+#
+# No-ops unless SELinux is actually enabled on the target. The one
+# boolean that matters is httpd_can_network_connect: without it nginx
+# cannot open a socket to the management/signal upstreams (or to the
+# dashboard container on loopback) and every proxied request 502s.
+# ---------------------------------------------------------------------
+openzro_manage_selinux: true

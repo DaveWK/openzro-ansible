@@ -27,20 +27,13 @@
     reload: true
   when: openzro_routing_peer_enable_ip_forward
 
-- name: Install openzro client package (apt)
-  ansible.builtin.apt:
-    name: "{{ openzro_routing_peer_package }}{{ ('=' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
+# `package` rather than apt/dnf tasks gated on ansible_pkg_mgr —
+# see the comment in roles/openzro_management/tasks/main.yml for why
+# (Fedora 41+ reports `dnf5` and matched neither gate).
+- name: Install openzro client package
+  ansible.builtin.package:
+    name: "{{ openzro_routing_peer_pkg_spec }}"
     state: present
-    update_cache: true
-  when: ansible_pkg_mgr == "apt"
-  notify: Restart openzro
-
-- name: Install openzro client package (dnf/yum)
-  ansible.builtin.dnf:
-    name: "{{ openzro_routing_peer_package }}{{ ('-' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
-    state: present
-    update_cache: true
-  when: ansible_pkg_mgr in ["dnf", "yum"]
   notify: Restart openzro
 
 - name: Render systemd EnvironmentFile

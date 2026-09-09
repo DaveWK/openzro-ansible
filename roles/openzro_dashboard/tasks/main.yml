@@ -1,57 +1,49 @@
 ---
-# Bare-metal dashboard install:
-#   1. apt/dnf install openzro-dashboard (static bundle + render-env.sh)
-#   2. Render /etc/openzro-dashboard.env from the role's template
-#   3. Run render-env.sh to substitute env values into the bundle
-# nginx is handled by openzro_nginx (separate role); it serves
-# the static files from openzro_dashboard_root.
+# Dispatcher. The dashboard installs from a distro package on
+# Debian-family hosts and from the upstream container image
+# everywhere else — see defaults/main.yml for why that asymmetry
+# exists (there is no dashboard rpm).
+#
+# nginx is a separate role. It either serves the unpacked static
+# bundle from disk (package method) or reverse-proxies to the
+# container on loopback (podman/docker) — openzro_nginx works that
+# out from openzro_dashboard_install_method, so nothing extra to set.
 
-- name: Install openzro-dashboard package (apt)
-  ansible.builtin.apt:
-    name: "{{ openzro_dashboard_package }}{{ ('=' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
-    state: present
-    update_cache: true
-  when: ansible_pkg_mgr == "apt"
-  register: dashboard_pkg_apt
+- name: Validate the requested install method
+  ansible.builtin.assert:
+    that:
+      - openzro_dashboard_install_method in ["auto", "package", "podman", "docker"]
+    fail_msg: >-
+      openzro_dashboard_install_method must be one of: auto, package,
+      podman, docker. Got: '{{ openzro_dashboard_install_method }}'.
 
-- name: Install openzro-dashboard package (dnf/yum)
-  ansible.builtin.dnf:
-    name: "{{ openzro_dashboard_package }}{{ ('-' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
-    state: present
-    update_cache: true
-  when: ansible_pkg_mgr in ["dnf", "yum"]
-  register: dashboard_pkg_dnf
+- name: Resolve the effective install method
+  ansible.builtin.set_fact:
+    openzro_dashboard_method: >-
+      {{ openzro_dashboard_install_method
+         if openzro_dashboard_install_method != 'auto'
+         else ('package' if ansible_os_family == 'Debian' else 'podman') }}
 
-- name: Install openzro-dashboard package (pacman)
-  community.general.pacman:
-    name: "{{ openzro_dashboard_package }}"
-    state: present
-    update_cache: true
-  when: ansible_pkg_mgr == "pacman"
-  register: dashboard_pkg_pacman
+- name: Refuse the package method where no dashboard package exists
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "Debian"
+    fail_msg: >-
+      openzro_dashboard_install_method=package needs the
+      `openzro-dashboard` package, which pkg.openzro.io publishes in
+      its APT repo only — the rpm repo has no dashboard package at
+      all. On {{ ansible_distribution }} use `podman` (the default
+      under `auto`) or `docker`.
+  when: openzro_dashboard_method == "package"
 
-- name: Render dashboard env file
-  ansible.builtin.template:
-    src: openzro-dashboard.env.j2
-    dest: "{{ openzro_dashboard_env_file }}"
-    owner: root
-    group: root
-    mode: "0640"
-    backup: true
-  register: dashboard_env_render
+- name: Install the dashboard from the distro package
+  ansible.builtin.include_tasks: install-package.yml
+  when: openzro_dashboard_method == "package"
 
-# Re-render the static bundle's $$VAR placeholders whenever the
-# package was upgraded OR the env values changed. The script is
-# idempotent (uses .orig snapshots).
-- name: Render env values into the static bundle
-  ansible.builtin.command:
-    cmd: "{{ openzro_dashboard_root }}/render-env.sh"
-  environment:
-    DASHBOARD_ROOT: "{{ openzro_dashboard_root }}"
-    ENV_FILE: "{{ openzro_dashboard_env_file }}"
-  when: >
-    dashboard_pkg_apt.changed or
-    dashboard_pkg_dnf.changed or
-    dashboard_pkg_pacman.changed or
-    dashboard_env_render.changed
-  changed_when: true
+- name: Install the dashboard as a podman container
+  ansible.builtin.include_tasks: install-podman.yml
+  when: openzro_dashboard_method == "podman"
+
+- name: Install the dashboard as a docker container
+  ansible.builtin.include_tasks: install-docker.yml
+  when: openzro_dashboard_method == "docker"

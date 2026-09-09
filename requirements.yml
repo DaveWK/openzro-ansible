@@ -3,6 +3,10 @@
 #
 #   ansible-galaxy install -r requirements.yml
 #
+# Requires ansible-core >= 2.18 when targeting Fedora 41+ or any other
+# host where dnf5 is the package manager — that's the release where
+# ansible.builtin.package learned to dispatch to the dnf5 module.
+#
 # Cloud collections are required only when openzro_cloud != "none".
 # A bare-metal-only deployment can skip them — they're large and
 # pull a lot of Python deps. To filter:
@@ -12,16 +16,21 @@
 #       --skip-cloud   # alias defined per-operator's wrapper
 
 collections:
-  # community.general — used by the openzro_dashboard role for the
-  # Arch pacman path. Tiny, install for any deployment.
-  - name: community.general
-    version: ">=8.0.0"
-
   # AWS — needed only when openzro_cloud == "aws".
   - name: amazon.aws
     version: ">=7.0.0"
   - name: community.aws
     version: ">=7.0.0"
+
+  # community.general — the dict_kv filter, used by aws_lb to build the
+  # NLB target list (roles/aws_lb/tasks/main.yml). Needed only when
+  # openzro_cloud == "aws". Nothing else in the tree uses the
+  # collection: the dashboard role's pacman path was the other
+  # consumer and that's gone. A missing filter plugin resolves at
+  # runtime, not at parse time, so neither CI gate catches its absence
+  # — the smoke playbook excludes the cloud roles entirely.
+  - name: community.general
+    version: ">=8.0.0"
 
   # GCP — needed only when openzro_cloud == "gcp".
   - name: google.cloud
@@ -33,8 +42,11 @@ collections:
   - name: community.crypto
     version: ">=2.0.0"
 
-  # ansible.posix — sysctl module used by openzro_routing_peer
-  # (IPv4 + IPv6 forwarding). Tiny, install for any deployment
-  # that includes routing-peer hosts.
+  # ansible.posix — three modules, all in the always-install tier:
+  #   sysctl     openzro_routing_peer (IPv4 + IPv6 forwarding)
+  #   firewalld  common, opening the stack's ports on RHEL/Fedora
+  #   seboolean  common, httpd_can_network_connect for nginx
+  # The last two no-op on hosts without firewalld / SELinux, but the
+  # collection still has to be present for the tasks to parse.
   - name: ansible.posix
     version: ">=1.5.0"

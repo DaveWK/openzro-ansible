@@ -10,7 +10,7 @@
 #  7. cloud_lb — only when openzro_cloud != "none" — point an AWS
 #                ALB / GCP forwarding rule at the host's nginx
 
-- name: Common (apt/yum repo + GPG key)
+- name: Common (package repo + GPG key, firewalld, SELinux)
   hosts: all
   become: true
   roles:

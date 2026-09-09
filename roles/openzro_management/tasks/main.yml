@@ -1,18 +1,22 @@
 ---
-- name: Install openzro-management package (apt)
-  ansible.builtin.apt:
-    name: "{{ openzro_management_package }}{{ ('=' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
+# One `package` task rather than an apt task plus a dnf task gated on
+# ansible_pkg_mgr: Fedora 41+ reports `dnf5`, which matched neither
+# gate, and ansible.builtin.dnf itself needs the dnf4 Python bindings
+# that a current Fedora no longer ships. `package` dispatches to the
+# right module (apt / dnf / dnf5 / pacman) on its own. The version-pin
+# separator comes from vars/main.yml.
+#
+# `package` has no update_cache, which the per-manager modules did.
+# The repo-add task in `common` carries it, and `common` runs first in
+# both site.yml and update.yml, so the cache is fresh as of this play.
+# The one gap is a re-run within cache_valid_time (3600s) of a fresh
+# publish: the new version resolves against a stale index. Pass
+# `-e openzro_force_cache_update=true`, or refresh by hand, if you are
+# chasing a package published minutes ago.
+- name: Install openzro-management package
+  ansible.builtin.package:
+    name: "{{ openzro_management_pkg_spec }}"
     state: present
-    update_cache: true
-  when: ansible_pkg_mgr == "apt"
-  notify: restart openzro-management
-
-- name: Install openzro-management package (dnf/yum)
-  ansible.builtin.dnf:
-    name: "{{ openzro_management_package }}{{ ('-' + openzro_version) if openzro_version | default('') | length > 0 else '' }}"
-    state: present
-    update_cache: true
-  when: ansible_pkg_mgr in ["dnf", "yum"]
   notify: restart openzro-management
 
 - name: Ensure openzro data dir exists

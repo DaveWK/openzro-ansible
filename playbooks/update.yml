@@ -8,10 +8,12 @@
 #
 #   ansible-playbook -i inventories/prod playbooks/update.yml
 #
-# Pinning a version: set openzro_version=0.53.1-alpha.X in
-# group_vars or via -e on the command line. With the var unset
-# the play upgrades to whatever apt/yum considers latest in the
-# pkg.openzro.io repo.
+# Pinning a version: set openzro_version=0.53.1~alpha.X in
+# group_vars or via -e on the command line. Note the TILDE — that's
+# how both repos spell the pre-release versions
+# (`0.53.1~alpha.86`), and the `-alpha.86` form used in git tags
+# matches nothing. With the var unset the play upgrades to whatever
+# the package manager considers latest in the pkg.openzro.io repo.
 #
 # Single-host (lab) deployments don't need any of this drain
 # choreography — just re-run site.yml. The cloud-LB drain steps

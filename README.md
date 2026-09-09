@@ -2,22 +2,49 @@
 
 Ansible playbooks for installing the openZro server stack
 (`management`, `signal`, `relay`, `dashboard`) on bare-metal Linux
-hosts (Debian/Ubuntu, RHEL/Rocky/Fedora).
+hosts.
 
 The roles wrap the native server packages produced by
 [openzro/openzro](https://github.com/openzro/openzro):
 
-| Component  | Package                                              | Source           |
-|------------|------------------------------------------------------|------------------|
-| management | `openzro-management_<v>_amd64.deb` / `.rpm`          | pkg.openzro.io   |
-| signal     | `openzro-signal_<v>_amd64.deb` / `.rpm`              | pkg.openzro.io   |
-| relay      | `openzro-relay_<v>_amd64.deb` / `.rpm`               | pkg.openzro.io   |
-| dashboard  | `ghcr.io/openzro/dashboard:<v>` (container, for now) | GHCR             |
+| Component  | Debian / Ubuntu             | Fedora / RHEL / Rocky / Alma    | Source         |
+|------------|-----------------------------|---------------------------------|----------------|
+| management | `openzro-management` deb    | `openzro-management` rpm        | pkg.openzro.io |
+| signal     | `openzro-signal` deb        | `openzro-signal` rpm            | pkg.openzro.io |
+| relay      | `openzro-relay` deb         | `openzro-relay` rpm             | pkg.openzro.io |
+| dashboard  | `openzro-dashboard` deb     | **no rpm** — container instead  | GHCR           |
+
+That last row is the one asymmetry worth knowing before you start:
+pkg.openzro.io's rpm repo publishes `openzro`, `openzro-management`,
+`openzro-relay`, `openzro-signal` and `openzro-ui` — and no
+dashboard. (`openzro-ui` is the desktop GUI client, not the web
+dashboard; the names invite the mistake.) On RHEL-family hosts the
+dashboard therefore runs as a container from
+`ghcr.io/openzro/dashboard`, under **podman or docker**, with nginx
+proxying to it. See [Dashboard install
+methods](#dashboard-install-methods).
 
 Server packages land in **v0.53.1-alpha.9** and onward — see
 [`release_files/`](https://github.com/openzro/openzro/tree/main/release_files)
 in the openzro repo for the systemd units, env files, and
 example configs that these roles override.
+
+## Supported platforms
+
+| Platform | Status | Notes |
+|---|---|---|
+| Debian 12+ / Ubuntu 22.04+ | Supported | All four components from packages. |
+| Fedora 41–44 | Supported | Dashboard via podman/docker. `dnf5` — needs ansible-core ≥ 2.18 on the control node. |
+| RHEL / Rocky / AlmaLinux 9+ | Supported | Dashboard via podman/docker. certbot comes from EPEL, which the `common` role enables. |
+| CentOS Stream 9+ | Should work | Same path as Rocky; not routinely exercised. |
+| Arch | Untested | Roles install via `ansible.builtin.package`, so nothing blocks it, but there's no openzro package in the Arch repos. |
+
+**Control node**: ansible-core **≥ 2.18**. That's not a style
+preference — Fedora 41+ and RHEL 10 use dnf5, and 2.18 is the release
+where `ansible.builtin.package` learned to dispatch to the `dnf5`
+module. On an older ansible-core the RPM tasks fail (or, worse,
+silently no-op). Collections: `ansible-galaxy install -r
+requirements.yml`.
 
 ## Layout
 
@@ -33,12 +60,13 @@ playbooks/
   relay.yml        # just relay
   dashboard.yml    # just dashboard
 roles/
-  common/                # apt/yum repo setup, GPG key import
+  common/                # package repo + GPG key, EPEL on EL,
+                         #   firewalld ports, SELinux booleans
   openzro_management/    # mgmt daemon, postgres DSN, OIDC, datastore,
                          #   cluster coordinator wiring (embedded NATS by default)
   openzro_signal/        # stateless rendezvous server
   openzro_relay/         # WireGuard relay (TURN-like)
-  openzro_dashboard/     # apt install + render env + nginx config
+  openzro_dashboard/     # package, podman or docker — see below
   openzro_nginx/         # nginx in front, certbot HTTP-01/DNS-01/BYO/self-signed
   openzro_nats_cluster/  # OPTIONAL — standalone nats-server cluster between
                          #   management hosts (alt to embedded NATS)
@@ -51,6 +79,8 @@ roles/
 ## Quick start (lab)
 
 ```sh
+# 0. Control node: ansible-core >= 2.18, plus the collections.
+ansible-galaxy install -r requirements.yml
 # 1. Inventory: edit inventories/lab/hosts.yml — point at your host(s).
 #    The default expects a single all-in-one host called `openzro1`.
 # 2. Group vars: copy + edit inventories/lab/group_vars/all.yml.example
@@ -63,19 +93,131 @@ roles/
 ansible-playbook -i inventories/lab playbooks/site.yml
 ```
 
+Nothing distro-specific to set: the roles detect the target's family
+and pick package names, config paths, and the dashboard install
+method to match. On a Fedora or RHEL host that also means firewalld
+ports and the SELinux boolean nginx needs — see [RHEL / Fedora
+notes](#rhel--fedora-notes).
+
 The role idempotently:
 
-- Adds pkg.openzro.io APT/YUM repo + imports the signing key
+- Adds the pkg.openzro.io APT or RPM repo + imports the signing key
+- Enables EPEL on Enterprise Linux (certbot lives there)
+- Opens the ports the host's inventory groups imply, in firewalld
+- Sets `httpd_can_network_connect` where SELinux is enforcing
 - Installs the three native packages
 - Renders `/etc/openzro/management.json` from the role's template
 - Drops `/etc/default/openzro-{management,signal,relay}` env files
+- Installs the dashboard — package, podman or docker, per below
 - `daemon-reload` + `enable --now` the systemd units
 
-The dashboard role currently runs the upstream container via
-`docker compose` (single-host) or a `Pod` manifest (multi-host).
-A native server package is on the openzro/openzro roadmap — when it
-lands, `roles/openzro_dashboard/tasks/main.yml` switches to apt/dnf
-install with the same template-driven approach as the other three.
+## Dashboard install methods
+
+`openzro_dashboard_install_method` takes four values:
+
+| Value | What runs | Where it works |
+|---|---|---|
+| `auto` *(default)* | `package` on Debian-family hosts, `podman` everywhere else | Everywhere — it encodes the table below so you don't have to |
+| `package` | `openzro-dashboard` deb; nginx serves the static bundle off disk | **APT only.** There is no dashboard rpm; the role asserts rather than failing halfway |
+| `podman` | `ghcr.io/openzro/dashboard` as a systemd quadlet, published on `127.0.0.1:8080`; nginx proxies to it | Anywhere with podman ≥ 4.4 (quadlet) |
+| `docker` | Same image, same port, wrapped in a systemd unit the role writes | Anywhere with a docker daemon |
+
+podman and docker are equally first-class: same unit name
+(`openzro-dashboard.service`), same lifecycle, same env file, same
+loopback publish, so `systemctl status openzro-dashboard`, the
+handlers, and `update.yml` behave identically either way. podman is
+the default under `auto` on RHEL-family hosts because it's in the
+distro repos, is rootless-capable, and needs no daemon; pick `docker`
+when the host already runs one and shouldn't grow a second container
+runtime.
+
+```yaml
+# Explicitly choose docker on a host that already has it
+openzro_dashboard_install_method: docker
+# Only if you want an image tag that doesn't track openzro_version —
+# by default it follows it, rewritten into the OCI spelling (`~` is
+# not legal in an image tag), or "latest" when nothing is pinned.
+openzro_dashboard_image_tag: "0.53.1-alpha.86"
+# Only if you're changing the loopback port; must match
+# openzro_nginx_dashboard_upstream
+openzro_dashboard_publish: "127.0.0.1:8080:80"
+```
+
+The nginx role picks `static` vs `proxy` serving from the same rule,
+so the two stay in sync without extra configuration. Override with
+`openzro_nginx_dashboard_mode` if you're doing something unusual.
+
+One caveat on updates: with the tag left at `latest`, a re-run
+changes nothing in the unit, so nothing restarts and no newer image
+is pulled — the container keeps running whatever it started with.
+Pin `openzro_dashboard_image_tag` (or `openzro_version`) and the tag
+change is what drives the restart and the pull. If you must track
+`latest`, force it with `systemctl restart openzro-dashboard`; the
+docker unit re-pulls on every start, and for podman add
+`AutoUpdate=registry` to the quadlet.
+
+A native dashboard rpm is on the openzro/openzro roadmap. When it
+lands, RHEL-family hosts can switch to `package` by setting the var —
+no role changes needed.
+
+## RHEL / Fedora notes
+
+Everything in this section is handled by the `common` role; it's
+documented because these are the things that silently break a
+Debian-shaped playbook when it first meets a RHEL-family host.
+
+**Package manager.** Fedora 41+ and RHEL 10 report
+`ansible_pkg_mgr == "dnf5"`. Every task in this repo installs through
+`ansible.builtin.package`, which dispatches correctly; conditionals
+are written against `ansible_os_family`. Gating on `ansible_pkg_mgr in
+["dnf", "yum"]` — which this repo used to do — matches nothing on
+those hosts, and the play then *succeeds* having installed nothing.
+
+**nginx layout.** RHEL-family nginx has no
+`sites-available`/`sites-enabled`; `nginx.conf` includes
+`/etc/nginx/conf.d/*.conf`. The role writes
+`/etc/nginx/conf.d/openzro.conf` there and skips the symlink step.
+
+**firewalld** is enabled by default and drops everything this stack
+needs. `common` opens the ports the host's groups imply — 80 + 443 on
+the dashboard host, 33080 tcp+udp on relays, the cluster port between
+management hosts — permanently and immediately, so the health checks
+later in the play can actually reach the service. Set
+`openzro_manage_firewall: false` to leave the host firewall alone,
+`openzro_firewall_expose_backends: true` when management and signal
+live on separate hosts and nginx has to cross the network to reach
+them.
+
+**SELinux.** With SELinux enforcing, nginx cannot open an outbound
+socket, so every proxied request to management, signal, or the
+dashboard container 502s — with nothing wrong in any config file.
+`common` sets `httpd_can_network_connect` persistently on hosts in the
+`dashboard` group. Disable with `openzro_manage_selinux: false`.
+
+**EPEL.** certbot and its DNS plugins aren't in the Enterprise Linux
+base repos, so `common` installs `epel-release` on EL (not on Fedora —
+its repos carry current versions of both). On Rocky / Alma / CentOS
+Stream this resolves from `extras`; on RHEL proper, either enable EPEL
+per Red Hat's documentation first or point
+`openzro_epel_release_package` at the release RPM's URL.
+
+Note also that EPEL's certbot lags upstream far enough that recent DNS
+plugins can reject its CLI arguments. The `openzro_relay` role works
+around this on EL by installing certbot plus the plugin into a
+`/opt/certbot` venv and symlinking the binary into `/usr/bin` — see
+[`roles/openzro_relay/README.md`](roles/openzro_relay/README.md).
+Fedora needs none of that.
+
+**Redis.** Fedora ships **valkey**, not redis — the fork that followed
+the licence change. `openzro_redis_cluster` selects package, service,
+user and config path accordingly; the coordinator speaks the Redis
+protocol, so valkey is a drop-in. EL uses `redis` from AppStream,
+Debian `redis-server`.
+
+**NATS.** Synadia publishes an apt repo but no rpm one, so RHEL-family
+hosts get the upstream release tarball into `/usr/local/bin` (version
+and optional checksum in `openzro_nats_version` /
+`openzro_nats_checksum`).
 
 ## Topology assumptions
 
@@ -85,7 +227,7 @@ install with the same template-driven approach as the other three.
   so peers can dial it; UDP/TCP 33080 is the default.
 - TLS termination happens at a load balancer / nginx in front of the
   hosts. The role can optionally generate a self-signed cert for
-  dev/lab use — `openzro_self_signed_tls: true`.
+  dev/lab use — `openzro_tls_mode: self_signed`.
 
 ## High availability — what works today vs. pending
 
@@ -135,7 +277,10 @@ The role auto-derives the peer list from the inventory's
 `management` group — no manual config beyond the inventory.
 
 Firewall rule needed: tcp/6222 between management hosts (or the
-port chosen via `openzro_cluster_peer_port`).
+port chosen via `openzro_cluster_peer_port`). On RHEL/Fedora the
+`common` role opens this in firewalld automatically once the
+`management` group has more than one host; elsewhere it's on you or
+your cloud security group.
 
 For external NATS or Redis (managed brokers, Elasticache /
 Memorystore), set the backend to `nats` or `redis` and configure
@@ -165,8 +310,35 @@ drain/upgrade/undrain dance per host:
 
 ```sh
 ansible-playbook -i inventories/prod playbooks/update.yml \
-    -e openzro_version=0.53.1-alpha.X
+    -e openzro_version=v0.53.1-alpha.97
 ```
+
+**Paste the version in whatever form you have it.** All of these mean
+the same thing to the roles:
+
+| you have | from |
+|---|---|
+| `v0.53.1-alpha.97` | a git tag, copied verbatim |
+| `0.53.1-alpha.97` | a release page, without the `v` |
+| `0.53.1~alpha.97` | the spelling the packages are published under |
+
+A leading `v` is stripped, and a `-` before a pre-release word
+(`alpha`, `beta`, `rc`) becomes `~`. That `~` is the character that
+sorts *before* the final release in both dpkg and rpm; a plain `-`
+sorts after, which would make `0.53.1-alpha.97` compare as **newer**
+than `0.53.1` — the opposite of what a pre-release means. That's why
+the packages use it, and why you no longer have to.
+
+A Debian-style upstream revision is left alone: `0.53.1-1` and
+`0.53.1-2ubuntu1` pass through untouched, since only a recognised
+pre-release word is rewritten. That hyphen separates the upstream
+version from the packaging revision and means something different.
+
+The roles append the version with the separator each package manager
+wants — `pkg=<v>` for apt, `pkg-<v>` for dnf — so `openzro_version`
+carries the bare version either way. The dashboard container gets the
+same version in the OCI spelling, since `~` is not legal in an image
+tag.
 
 Per host, in order:
 
@@ -174,7 +346,9 @@ Per host, in order:
 2. Wait for the `deregistration_delay` (AWS) or
    `connection_draining_timeout_sec` (GCP) — in-flight requests
    finish without being severed
-3. Run the role tasks (apt/yum/pacman upgrade + systemd restart)
+3. Run the role tasks (package upgrade + systemd restart; on the
+   dashboard host that's an image pull + container restart when
+   the install method is podman or docker)
 4. Wait for the local service to bind its port
 5. Re-register the host with the LB target pool
 6. Wait for the LB health check to mark the host `healthy`
@@ -223,9 +397,13 @@ there's nowhere to drain to.
 
 The numbers below are starting points based on observed footprints
 of the daemons under typical traffic. Tune up if your tracing /
-metrics show pressure. **All daemons run as native systemd units
-with no container layer** — overhead is the binary itself, not a
-runtime + image.
+metrics show pressure. **The three daemons — management, signal,
+relay — run as native systemd units with no container layer**;
+overhead is the binary itself, not a runtime + image. The dashboard
+is a static SPA either way: served off disk under the `package`
+method, or from a small nginx container under podman/docker, where
+the runtime adds a few tens of MB of RAM and nothing meaningful in
+CPU.
 
 ### Lab / proof-of-concept (< 100 peers)
 
@@ -410,7 +588,7 @@ git. Example for `openzro-deploy-routing-peers`:
 | Survey question | Variable | Default | Required |
 |---|---|---|---|
 | Target hostname (limit) | `target_host` |  | ✅ |
-| openzro version | `openzro_version` | `0.53.1-alpha.41` |  |
+| openzro version | `openzro_version` | `v0.53.1-alpha.97` |  |
 
 The setup key stays in vault — operators don't see or paste it.
 
