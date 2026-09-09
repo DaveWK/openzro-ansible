@@ -1,11 +1,23 @@
 ---
 # Version-pin syntax differs by package manager: apt wants
-# `pkg=1.2.3`, dnf/yum want `pkg-1.2.3`. Both repos publish the
-# alpha versions with a tilde (`0.53.1~alpha.86`), so that's the
-# string openzro_version should carry — not the `-alpha.86` form
-# used in git tags.
+# `pkg=1.2.3`, dnf/yum want `pkg-1.2.3`.
 openzro_pkg_version_separator: "{{ '=' if ansible_os_family == 'Debian' else '-' }}"
 
+# openzro_version accepts either spelling of a pre-release. Git tags and
+# release pages use `0.53.1-alpha.86`; the packages are published as
+# `0.53.1~alpha.86`, because `~` is the character that sorts *before* the
+# final release in both dpkg and rpm version comparison — a plain `-`
+# sorts after, so `0.53.1-alpha.86` would be treated as NEWER than
+# `0.53.1`. Operators copying a version out of a git tag shouldn't have
+# to know that, so normalise it here instead of documenting a footgun.
+#
+# Only a recognised pre-release word is rewritten, which leaves a
+# Debian-style upstream revision (`0.53.1-1`) alone — that hyphen is
+# meaningful and must not become a tilde. Already-tilde input is a no-op.
+openzro_version_pkg: >-
+  {{ openzro_version | default('', true)
+     | regex_replace('^([0-9][0-9.]*)-((?:alpha|beta|rc)\b.*)$', '\1~\2') }}
+
 openzro_relay_pkg_spec: >-
-  {{ openzro_relay_package }}{{ (openzro_pkg_version_separator ~ openzro_version)
-     if openzro_version | default('') | length > 0 else '' }}
+  {{ openzro_relay_package }}{{ (openzro_pkg_version_separator ~ openzro_version_pkg)
+     if openzro_version_pkg | length > 0 else '' }}

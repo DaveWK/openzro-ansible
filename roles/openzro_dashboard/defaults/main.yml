@@ -37,12 +37,11 @@ openzro_dashboard_image: ghcr.io/openzro/dashboard
 # Defaults to openzro_version when one is pinned so the dashboard
 # doesn't drift away from the daemons during a rolling update.
 #
-# The `~` gets rewritten to `-`: openzro_version carries the package
-# spelling (`0.53.1~alpha.86`) but a tilde is not a legal character in
-# an OCI tag, and the image is tagged with the git-tag spelling
-# (`0.53.1-alpha.86`). Set this explicitly if the image you want
-# doesn't follow that pattern.
-openzro_dashboard_image_tag: "{{ openzro_version | default('latest', true) | replace('~', '-') }}"
+# Derived from openzro_version in the OCI spelling — see
+# openzro_version_oci in this role's vars/main.yml for why the two
+# differ. Set this explicitly if the image you want doesn't follow
+# that pattern.
+openzro_dashboard_image_tag: "{{ openzro_version_oci | default('latest', true) }}"
 openzro_dashboard_container_name: openzro-dashboard
 openzro_dashboard_service: openzro-dashboard.service
 

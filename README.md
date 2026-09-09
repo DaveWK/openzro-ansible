@@ -134,10 +134,9 @@ runtime.
 ```yaml
 # Explicitly choose docker on a host that already has it
 openzro_dashboard_install_method: docker
-# Pin the image the same way you pin the daemons — defaults to
-# openzro_version with the tilde rewritten, else "latest". Note the
-# hyphen: `~` is the package spelling and is not legal in an OCI tag,
-# so the image carries the git-tag form.
+# Only if you want an image tag that doesn't track openzro_version —
+# by default it follows it, rewritten into the OCI spelling (`~` is
+# not legal in an image tag), or "latest" when nothing is pinned.
 openzro_dashboard_image_tag: "0.53.1-alpha.86"
 # Only if you're changing the loopback port; must match
 # openzro_nginx_dashboard_upstream
@@ -311,14 +310,26 @@ drain/upgrade/undrain dance per host:
 
 ```sh
 ansible-playbook -i inventories/prod playbooks/update.yml \
-    -e openzro_version=0.53.1~alpha.86
+    -e openzro_version=0.53.1-alpha.86
 ```
 
-Note the **tilde**: that's how both repos version the pre-releases
-(`0.53.1~alpha.86`). The `-alpha.86` spelling from the git tags
-matches no package. The roles append the version with the separator
-each package manager wants — `pkg=<v>` for apt, `pkg-<v>` for dnf — so
-`openzro_version` carries the bare version either way.
+**Either spelling of a pre-release works.** Copy `0.53.1-alpha.86`
+straight out of a git tag or release page, or use the `0.53.1~alpha.86`
+form the packages are actually published under — the roles normalise
+between them. (`~` is the character that sorts *before* the final
+release in both dpkg and rpm; a plain `-` sorts after, which would make
+`0.53.1-alpha.86` compare as newer than `0.53.1`. That's why the
+packages use it, and why you no longer have to.)
+
+A Debian-style upstream revision is left alone: `0.53.1-1` stays
+`0.53.1-1`, since only a recognised pre-release word (`alpha`, `beta`,
+`rc`) is rewritten.
+
+The roles append the version with the separator each package manager
+wants — `pkg=<v>` for apt, `pkg-<v>` for dnf — so `openzro_version`
+carries the bare version either way. The dashboard container gets the
+same version in the OCI spelling, since `~` is not legal in an image
+tag.
 
 Per host, in order:
 
@@ -568,7 +579,7 @@ git. Example for `openzro-deploy-routing-peers`:
 | Survey question | Variable | Default | Required |
 |---|---|---|---|
 | Target hostname (limit) | `target_host` |  | ✅ |
-| openzro version | `openzro_version` | `0.53.1~alpha.86` |  |
+| openzro version | `openzro_version` | `0.53.1-alpha.86` |  |
 
 The setup key stays in vault — operators don't see or paste it.
 
