@@ -3,20 +3,27 @@
 # `pkg=1.2.3`, dnf/yum want `pkg-1.2.3`.
 openzro_pkg_version_separator: "{{ '=' if ansible_os_family == 'Debian' else '-' }}"
 
-# openzro_version accepts either spelling of a pre-release. Git tags and
-# release pages use `0.53.1-alpha.86`; the packages are published as
-# `0.53.1~alpha.86`, because `~` is the character that sorts *before* the
-# final release in both dpkg and rpm version comparison — a plain `-`
-# sorts after, so `0.53.1-alpha.86` would be treated as NEWER than
-# `0.53.1`. Operators copying a version out of a git tag shouldn't have
-# to know that, so normalise it here instead of documenting a footgun.
+# openzro_version accepts either spelling of a pre-release, with or
+# without the `v` the git tags carry. Tags and release pages give
+# `v0.53.1-alpha.97`; the packages are published as `0.53.1~alpha.97`,
+# because `~` is the character that sorts *before* the final release in
+# both dpkg and rpm version comparison — a plain `-` sorts after, so
+# `0.53.1-alpha.97` would be treated as NEWER than `0.53.1`. Operators
+# copying a version out of a tag shouldn't have to know that, so
+# normalise it here instead of documenting a footgun.
+#
+# Stripping the `v` is its own step on purpose: folded into the
+# pre-release rule it would leave a plain `v0.53.1` untouched.
 #
 # Only a recognised pre-release word is rewritten, which leaves a
-# Debian-style upstream revision (`0.53.1-1`) alone — that hyphen is
-# meaningful and must not become a tilde. Already-tilde input is a no-op.
+# Debian-style upstream revision (`0.53.1-1`, `0.53.1-2ubuntu1`) alone —
+# that hyphen is meaningful and must not become a tilde. The trailing
+# character class rather than `\b` is what lets `rc1` convert as well as
+# `rc.1`. Already-tilde input is a no-op.
 openzro_version_pkg: >-
   {{ openzro_version | default('', true)
-     | regex_replace('^([0-9][0-9.]*)-((?:alpha|beta|rc)\b.*)$', '\1~\2') }}
+     | regex_replace('^v(?=[0-9])', '')
+     | regex_replace('^([0-9][0-9.]*)-((?:alpha|beta|rc)[0-9._-].*|(?:alpha|beta|rc))$', '\1~\2') }}
 
 openzro_signal_pkg_spec: >-
   {{ openzro_signal_package }}{{ (openzro_pkg_version_separator ~ openzro_version_pkg)

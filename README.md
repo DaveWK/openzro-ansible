@@ -310,20 +310,29 @@ drain/upgrade/undrain dance per host:
 
 ```sh
 ansible-playbook -i inventories/prod playbooks/update.yml \
-    -e openzro_version=0.53.1-alpha.86
+    -e openzro_version=v0.53.1-alpha.97
 ```
 
-**Either spelling of a pre-release works.** Copy `0.53.1-alpha.86`
-straight out of a git tag or release page, or use the `0.53.1~alpha.86`
-form the packages are actually published under — the roles normalise
-between them. (`~` is the character that sorts *before* the final
-release in both dpkg and rpm; a plain `-` sorts after, which would make
-`0.53.1-alpha.86` compare as newer than `0.53.1`. That's why the
-packages use it, and why you no longer have to.)
+**Paste the version in whatever form you have it.** All of these mean
+the same thing to the roles:
 
-A Debian-style upstream revision is left alone: `0.53.1-1` stays
-`0.53.1-1`, since only a recognised pre-release word (`alpha`, `beta`,
-`rc`) is rewritten.
+| you have | from |
+|---|---|
+| `v0.53.1-alpha.97` | a git tag, copied verbatim |
+| `0.53.1-alpha.97` | a release page, without the `v` |
+| `0.53.1~alpha.97` | the spelling the packages are published under |
+
+A leading `v` is stripped, and a `-` before a pre-release word
+(`alpha`, `beta`, `rc`) becomes `~`. That `~` is the character that
+sorts *before* the final release in both dpkg and rpm; a plain `-`
+sorts after, which would make `0.53.1-alpha.97` compare as **newer**
+than `0.53.1` — the opposite of what a pre-release means. That's why
+the packages use it, and why you no longer have to.
+
+A Debian-style upstream revision is left alone: `0.53.1-1` and
+`0.53.1-2ubuntu1` pass through untouched, since only a recognised
+pre-release word is rewritten. That hyphen separates the upstream
+version from the packaging revision and means something different.
 
 The roles append the version with the separator each package manager
 wants — `pkg=<v>` for apt, `pkg-<v>` for dnf — so `openzro_version`
@@ -579,7 +588,7 @@ git. Example for `openzro-deploy-routing-peers`:
 | Survey question | Variable | Default | Required |
 |---|---|---|---|
 | Target hostname (limit) | `target_host` |  | ✅ |
-| openzro version | `openzro_version` | `0.53.1-alpha.86` |  |
+| openzro version | `openzro_version` | `v0.53.1-alpha.97` |  |
 
 The setup key stays in vault — operators don't see or paste it.
 
