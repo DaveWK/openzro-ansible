@@ -51,6 +51,11 @@
     | awk '/^certbot/ {print $1; exit}'
   register: openzro_relay_certbot_timer
   changed_when: false
+  # Read-only probe, so let it run under --check too. A task skipped in
+  # check mode registers no stdout, and the next task dereferences
+  # .stdout in its `when:` — so a dry run fails here instead of
+  # reporting what it would do.
+  check_mode: false
 
 - name: Ensure the certbot renewal timer is enabled
   ansible.builtin.systemd:

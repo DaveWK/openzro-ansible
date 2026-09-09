@@ -5,6 +5,14 @@
 # that a current Fedora no longer ships. `package` dispatches to the
 # right module (apt / dnf / dnf5 / pacman) on its own. The version-pin
 # separator comes from vars/main.yml.
+#
+# `package` has no update_cache, which the per-manager modules did.
+# The repo-add task in `common` carries it, and `common` runs first in
+# both site.yml and update.yml, so the cache is fresh as of this play.
+# The one gap is a re-run within cache_valid_time (3600s) of a fresh
+# publish: the new version resolves against a stale index. Pass
+# `-e openzro_force_cache_update=true`, or refresh by hand, if you are
+# chasing a package published minutes ago.
 - name: Install openzro-management package
   ansible.builtin.package:
     name: "{{ openzro_management_pkg_spec }}"

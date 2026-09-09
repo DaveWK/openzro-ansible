@@ -135,8 +135,10 @@ runtime.
 # Explicitly choose docker on a host that already has it
 openzro_dashboard_install_method: docker
 # Pin the image the same way you pin the daemons — defaults to
-# openzro_version when that's set, else "latest"
-openzro_dashboard_image_tag: "0.53.1~alpha.86"
+# openzro_version with the tilde rewritten, else "latest". Note the
+# hyphen: `~` is the package spelling and is not legal in an OCI tag,
+# so the image carries the git-tag form.
+openzro_dashboard_image_tag: "0.53.1-alpha.86"
 # Only if you're changing the loopback port; must match
 # openzro_nginx_dashboard_upstream
 openzro_dashboard_publish: "127.0.0.1:8080:80"

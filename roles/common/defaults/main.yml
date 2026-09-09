@@ -7,6 +7,14 @@
 # ---------------------------------------------------------------------
 # Package repo
 # ---------------------------------------------------------------------
+# Force a package-index refresh even if the cached one is still within
+# cache_valid_time. The component roles install with ansible.builtin.package,
+# which has no update_cache of its own and relies on this role having
+# refreshed the index earlier in the play. Set true when chasing a version
+# published in the last hour, which would otherwise resolve against a
+# stale index and fail with "no candidate".
+openzro_force_cache_update: false
+
 openzro_repo_baseurl_apt: "https://pkg.openzro.io/apt"
 openzro_repo_baseurl_rpm: "https://pkg.openzro.io/rpm/$basearch"
 openzro_repo_key_url: "https://pkg.openzro.io/openzro-archive-key.asc"

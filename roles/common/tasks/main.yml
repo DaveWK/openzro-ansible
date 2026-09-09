@@ -48,7 +48,7 @@
       - gnupg
     state: present
     update_cache: true
-    cache_valid_time: 3600
+    cache_valid_time: "{{ 0 if openzro_force_cache_update | bool else 3600 }}"
   when: openzro_pkg_family == "apt"
 
 # Minimal Debian images don't ship /etc/apt/keyrings — the get_url
@@ -112,6 +112,20 @@
     repo_gpgcheck: true
     enabled: true
   when: openzro_pkg_family == "rpm"
+
+# dnf expires its own metadata on a timer (metadata_expire, 48h for most
+# repos), so unlike apt nothing else in this play refreshes it. Must come
+# after the repo registration above — refreshing before it exists would
+# rebuild every index except the one the component roles install from.
+# Only forced, because an unconditional makecache on every run is a slow
+# no-op the rest of the time.
+- name: RPM — force a metadata refresh
+  ansible.builtin.command:
+    cmd: "{{ ansible_pkg_mgr }} -q makecache --refresh"
+  changed_when: false
+  when:
+    - openzro_pkg_family == "rpm"
+    - openzro_force_cache_update | bool
 
 # EPEL carries certbot and its DNS plugins on Enterprise Linux. Fedora
 # has them in the base repo, so this is EL-only.

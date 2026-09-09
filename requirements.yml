@@ -22,6 +22,16 @@ collections:
   - name: community.aws
     version: ">=7.0.0"
 
+  # community.general — the dict_kv filter, used by aws_lb to build the
+  # NLB target list (roles/aws_lb/tasks/main.yml). Needed only when
+  # openzro_cloud == "aws". Nothing else in the tree uses the
+  # collection: the dashboard role's pacman path was the other
+  # consumer and that's gone. A missing filter plugin resolves at
+  # runtime, not at parse time, so neither CI gate catches its absence
+  # — the smoke playbook excludes the cloud roles entirely.
+  - name: community.general
+    version: ">=8.0.0"
+
   # GCP — needed only when openzro_cloud == "gcp".
   - name: google.cloud
     version: ">=1.3.0"

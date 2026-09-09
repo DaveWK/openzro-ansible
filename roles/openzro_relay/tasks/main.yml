@@ -2,6 +2,10 @@
 # `package` rather than apt/dnf tasks gated on ansible_pkg_mgr —
 # see the comment in roles/openzro_management/tasks/main.yml for why
 # (Fedora 41+ reports `dnf5` and matched neither gate).
+#
+# On update_cache: see the comment in
+# roles/openzro_management/tasks/main.yml — `common` refreshes the
+# index before these roles run.
 - name: Install openzro-relay package
   ansible.builtin.package:
     name: "{{ openzro_relay_pkg_spec }}"
